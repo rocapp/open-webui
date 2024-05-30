@@ -3,12 +3,42 @@ version: '3.8'
 services:
   ollama:
     volumes:
-      - ollama:/root/.ollama
+      - /usr/share/ollama/.ollama:/root/.ollama
     container_name: ollama
     pull_policy: always
     tty: true
     restart: unless-stopped
     image: ollama/ollama:${OLLAMA_DOCKER_TAG-latest}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: ${OLLAMA_GPU_DRIVER-nvidia}
+              count: ${OLLAMA_GPU_COUNT-1}
+              capabilities:
+                - gpu
+  llava:
+    build:
+      context: ./llava
+    env_file:
+      - .env
+    restart: on-failure
+    depends_on:
+     ollama:
+       condition: service_healthy
+     curl:
+       condition: service_completed_successfully
+
+  curl:
+    image: curlimages/curl:latest
+    env_file:
+      - .env
+    command: >
+      /bin/sh -c "curl -X POST $$OLLAMA_BASE_URL/api/pull
+      -d \"{\\\"name\\\": \\\"$$VISION_MODEL\\\"}\""
+    restart: on-failure
+    depends_on:
+      - ollama
 
   open-webui:
     build:
@@ -23,10 +53,11 @@ services:
     depends_on:
       - ollama
     ports:
-      - ${OPEN_WEBUI_PORT-3000}:8080
+      - ${OPEN_WEBUI_PORT-3003}:8080
     environment:
       - 'OLLAMA_BASE_URL=http://ollama:11434'
       - 'WEBUI_SECRET_KEY='
+    env_file: .env
     extra_hosts:
       - host.docker.internal:host-gateway
     restart: unless-stopped
